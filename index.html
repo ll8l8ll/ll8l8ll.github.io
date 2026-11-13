@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Sashka gift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one full-screen night scene. A canvas draws a character grid; the
+     tree is a 3D point cloud projected into that grid. Intro card sits on top. */
+  :root {
+    --bg: #0b1322;        /* winter night */
+    --bg-2: #13203a;      /* raised surface */
+    --gold: #ffd36b;
+    --text: #f3efe4;
+    --muted: #8e9ab3;
+    --dim: #56627c;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    overscroll-behavior: none;
+  }
+  [hidden] { display: none !important; }
+  .stage {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    touch-action: none;
+    cursor: grab;
+  }
+  .stage:active { cursor: grabbing; }
+  #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #message {
+    position: absolute;
+    left: 0; right: 0;
+    display: grid;
+    justify-items: center;
+    gap: 0.35em;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    font-size: clamp(18px, 5.4vw, 28px);
+    font-weight: 500;
+    text-align: center;
+    pointer-events: none;
+    text-shadow: 0 0 12px rgba(255, 211, 107, 0.25);
+  }
+  #message .line { min-height: 1.3em; white-space: pre-wrap; }
+  #message .line + .line { font-size: 0.6em; color: var(--muted); font-weight: 400; text-shadow: none; }
+  .cursor {
+    display: inline-block;
+    width: 0.55em; height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.12em;
+    background: var(--gold);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  #hint {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    text-align: center;
+    font-size: 12px;
+    color: var(--dim);
+    letter-spacing: 0.08em;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    pointer-events: none;
+  }
+  #hint.show { opacity: 1; }
+  #replay {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    appearance: none;
+    border: 0;
+    background: none;
+    color: var(--dim);
+    font: 400 13px var(--mono);
+    letter-spacing: 0.06em;
+    padding: 8px;
+    cursor: pointer;
+  }
+  #replay:hover, #replay:focus-visible { color: var(--gold); outline: none; }
+  #sound {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    appearance: none;
+    border: 0;
+    background: none;
+    color: var(--dim);
+    font: 400 13px var(--mono);
+    letter-spacing: 0.06em;
+    padding: 8px;
+    cursor: pointer;
+  }
+  #sound:hover, #sound:focus-visible { color: var(--gold); outline: none; }
+
+  /* Intro */
+  #intro {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--bg);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    z-index: 2;
+    cursor: default;
+  }
+  #intro.leaving { opacity: 0; transform: scale(1.05); pointer-events: none; }
+  .intro-inner { display: grid; justify-items: center; gap: 22px; text-align: center; max-width: 32ch; }
+  .gift {
+    margin: 0;
+    font-family: var(--mono);
+    font-variant-ligatures: none;
+    text-align: left; /* the parent centers text; ASCII art rows must line up */
+    font-size: 13px;
+    line-height: 1.1;
+    color: #ff5a5f;
+    text-shadow: 0 0 8px rgba(255, 90, 95, 0.45);
+    animation: float 2.4s ease-in-out infinite;
+  }
+  .gift i { font-style: normal; }
+  .gift .g { color: var(--gold); text-shadow: 0 0 8px rgba(255, 211, 107, 0.5); }  /* ribbon and bow */
+  .gift .d { color: #a8343c; text-shadow: none; }                                 /* side in shadow, lid texture */
+  .gift .w { color: #f3f6fb; text-shadow: 0 0 6px rgba(255, 255, 255, 0.5); }      /* snowflake print */
+  .gift .m { color: #ffb3b6; text-shadow: none; }
+  .gift .t { color: #fff1cf; text-shadow: 0 0 6px rgba(255, 241, 207, 0.8); animation: twinkle 2.2s ease-in-out infinite; }
+  @keyframes twinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
+  @keyframes float { 50% { transform: translateY(-6px) rotate(-1.5deg); } }
+  .intro-title { margin: 0; font-size: 20px; font-weight: 500; text-wrap: balance; }
+  .intro-sub { margin: -10px 0 0; font-size: 13px; color: var(--muted); }
+  #open {
+    appearance: none;
+    border: 1px solid var(--gold);
+    background: var(--bg-2);
+    color: var(--text);
+    font: 500 16px/1 var(--mono);
+    letter-spacing: 0.06em;
+    padding: 16px 30px;
+    border-radius: 999px;
+    cursor: pointer;
+    animation: ping 2s ease-out infinite;
+  }
+  #open:hover { background: #1b2a48; }
+  #open:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; }
+  #open:active { transform: scale(0.97); }
+  @keyframes ping {
+    0% { box-shadow: 0 0 0 0 rgba(255, 211, 107, 0.4); }
+    80%, 100% { box-shadow: 0 0 0 18px rgba(255, 211, 107, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gift, .gift .t, #open, .cursor { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <canvas id="c" aria-hidden="true"></canvas>
+  <div id="message" aria-live="polite"><div class="line" id="line1"></div><div class="line" id="line2"></div></div>
+  <div id="hint">тык для салюта</div>
+  <button id="replay" type="button" hidden>ещё раз</button>
+  <button id="sound" type="button" hidden>звук вкл</button>
+
+  <div id="intro">
+    <div class="intro-inner">
+<pre class="gift" aria-hidden="true">   <i class="t" style="animation-delay:0s">+</i>     <i class="g">.--.</i>     <i class="g">.--.</i>
+        <i class="g">/</i>    <i class="g">\</i>   <i class="g">/</i>    <i class="g">\</i>   <i class="t" style="animation-delay:0.7s">*</i>
+        <i class="g">\</i>  <i class="g">.--\_/--.</i>  <i class="g">/</i>  <i class="t" style="animation-delay:1.9s">.</i>
+ <i class="t" style="animation-delay:1.3s">.</i>       <i class="g">'-'</i>  <i class="g">(_)</i>  <i class="g">'-'</i>
+     _________<i class="g">/__\</i>_______
+<i class="t" style="animation-delay:0.4s">*</i>   /         <i class="g">//</i>        /<i class="d">|</i>
+   /_________<i class="g">//</i>________/ <i class="d">|</i>
+   |<i class="d">#########</i><i class="g">||</i><i class="d">########</i>| <i class="d">|</i>
+   |_________<i class="g">||</i>________|<i class="d">/|</i> <i class="t" style="animation-delay:1.0s">+</i>
+   | <i class="w">*</i>   <i class="m">.</i>   <i class="g">||</i>  <i class="m">.</i>   <i class="w">*</i> | <i class="d">|</i>
+   |<i class="g">=========||========</i>| <i class="d">|</i>
+<i class="t" style="animation-delay:1.6s">+</i>  |   <i class="m">.</i>   <i class="w">*</i> <i class="g">||</i>  <i class="w">*</i>   <i class="m">.</i> | <i class="d">|</i>
+   | <i class="m">.</i>   <i class="w">*</i>   <i class="g">||</i> <i class="m">.</i>   <i class="w">*</i>  | <i class="d">/</i>
+   |_________<i class="g">||</i>________|<i class="d">/</i>  <i class="t" style="animation-delay:0.2s">*</i></pre>
+      <p class="intro-title">мне было скучно и я сделал это</p>
+      <p class="intro-sub">надеюсь понравится)</p>
+      <button id="open" type="button">открыть</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- edit these two lines to change what the person sees ----
+const MESSAGE = "тебе для новогоднего настроения🥳";
+const SUBLINE = "осталось только настоящую поставить)";
+// --------------------------------------------------------------
+
+// ---- Telegram Mini App hooks (no-ops in a normal browser) ----
+const tg = window.Telegram && window.Telegram.WebApp;
+function haptic(kind) {
+  try {
+    if (!tg || !tg.HapticFeedback) return;
+    if (kind === "success") tg.HapticFeedback.notificationOccurred("success");
+    else tg.HapticFeedback.impactOccurred(kind);
+  } catch (e) {}
+}
+if (tg) {
+  try {
+    tg.ready();
+    tg.expand();
+    tg.setHeaderColor("#0b1322");
+    tg.setBackgroundColor("#0b1322");
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); // so dragging doesn't close the app
+  } catch (e) {}
+}
+
+// ---- palette ----
+const PAL = [
+  "#0a2418", "#0e3322", "#13452c", "#195a38", "#217246", "#2e8d57", "#4aad70", "#8fdca8", // 0-7 needles
+  "#3e271a", "#77502f",                                   // 8-9 bark
+  "#ffd36b", "#c99a3e", "#7a5c25",                        // 10-12 gold
+  "#ff5a5f", "#5fb0ff", "#fff1cf", "#c48bff",             // 13 red, 14 blue, 15 warm white, 16 violet
+  "#e8f0fa", "#a9b6cc", "#5d6a84",                        // 17-19 snow
+  "#ffffff",                                              // 20 white
+  "#8a2c33", "#2a5788", "#5d3c8a", "#d5dce6",             // 21 red dark, 22 blue dark, 23 violet dark, 24 silver
+  "#5e3a2c", "#55592a", "#1f5660", "#463a5e", "#56653e",  // 25-29 needles tinted by nearby lights
+  "#a9a59d", "#76726c","#d6d45a", "#f2a0ab", "#f1ede4", "#c48a91", // 30-35 silver tabby: fur, stripes, eyes, nose, white fur, inner ear
+];
+const GOLD = 10, GOLD_M = 11, GOLD_D = 12, RED = 13, BLUE = 14, WARM = 15, VIOLET = 16;
+const SNOW = 17, SNOW_M = 18, SNOW_D = 19, WHITE = 20, RED_D = 21, BLUE_D = 22, VIOLET_D = 23, SILVER = 24;
+const KIT = 30, KIT_D = 31, KIT_EYE = 32, KIT_NOSE = 33, KIT_W = 34, KIT_EAR = 35;
+const GLOW = new Set([GOLD, RED, BLUE, WARM, VIOLET, WHITE]);
+const BULBS = [RED, GOLD, BLUE, WARM, VIOLET];
+const TINT = { [RED]: 25, [GOLD]: 26, [BLUE]: 27, [VIOLET]: 28, [WARM]: 29 };
+const NEEDLE = ".,:;^^*#";
+
+// point kinds
+const K_NEEDLE = 0, K_TRUNK = 1, K_BULB = 2, K_ORN = 3, K_BEAD = 4, K_SNOWCAP = 5, K_STAR = 6, K_GIFT = 7, K_RIBBON = 8, K_GROUND = 9;
+
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const msgBox = document.getElementById("message");
+const line1 = document.getElementById("line1");
+const line2 = document.getElementById("line2");
+const hint = document.getElementById("hint");
+const intro = document.getElementById("intro");
+const replayBtn = document.getElementById("replay");
+
+// grid + camera
+let W = 0, H = 0, dpr = 1, fs = 10, cw = 6, lh = 12, cols = 0, rows = 0, ox = 0, oy = 0;
+let S = 20, ax = 2, cx = 0, baseRow = 0, midRow = 0;
+const CAM_D = 3.2; // camera distance (in tree heights) for perspective
+let ch = [], colr = new Uint8Array(0), zb = new Float32Array(0), kindBuf = new Uint8Array(0);
+const groups = PAL.map(() => []);
+
+// scene points: x y z nx ny nz kind color a noise g
+const STRIDE = 11;
+let P = new Float32Array(0), nPts = 0;
+let flakes = [], sky = [], sparks = [], rings = [], lit = [];
+
+// state
+let yaw = 0.6, pitch = 0.16, yawVel = 0.3, autoVel = reduce ? 0 : 0.3;
+let wobble = 0, lightBoost = 0, growY = -1, phase = "idle", t0 = 0, last = 0;
+let typingTimer = null, raf = 0, started = false, drag = null;
+
+const TIERS = [
+  { y0: 0.08, y1: 0.36, R: 0.47 },
+  { y0: 0.24, y1: 0.52, R: 0.40 },
+  { y0: 0.40, y1: 0.66, R: 0.32 },
+  { y0: 0.54, y1: 0.78, R: 0.24 },
+  { y0: 0.67, y1: 0.89, R: 0.16 },
+  { y0: 0.79, y1: 0.98, R: 0.09 },
+].map((t, i) => ({ ...t, nb: Math.round(7 + t.R * 30), off: i * 0.9 }));
+
+// a tier is a cone made of rounded branch clumps ("lobes") with droopy tips
+function surf(tier, t, th) {
+  const lobe = Math.pow(0.5 + 0.5 * Math.cos(tier.nb * (th + tier.off)), 0.7);
+  const rim = t < 0.2 ? (0.2 - t) / 0.2 : 0;
+  const r = tier.R * Math.pow(1 - t, 0.95) * (0.76 + (0.24 + 0.08 * rim) * lobe);
+  const y = tier.y0 + t * (tier.y1 - tier.y0) - 0.04 * Math.pow(1 - t, 4) * lobe;
+  return [r * Math.cos(th), y, r * Math.sin(th), lobe];
+}
+
+function outerR(y) {
+  let r = 0;
+  for (const t of TIERS) if (y >= t.y0 && y <= t.y1) r = Math.max(r, t.R * Math.pow(1 - (y - t.y0) / (t.y1 - t.y0), 0.95));
+  return r;
+}
+
+function layout() {
+  W = stage.clientWidth; H = stage.clientHeight;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  fs = Math.max(8, Math.min(14, Math.round(Math.min(W, H) / 50)));
+  lh = Math.round(fs * 1.15);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = `500 ${fs}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
+  ctx.textBaseline = "top";
+  cw = ctx.measureText("M".repeat(50)).width / 50;
+  cols = Math.floor(W / cw); rows = Math.floor(H / lh);
+  ox = (W - cols * cw) / 2; oy = (H - rows * lh) / 2;
+  ax = lh / cw;
+  S = Math.min(rows * 0.56, (cols * 0.86) / (1.0 * ax));
+  cx = (cols - 1) / 2;
+  baseRow = Math.round(rows * 0.68);
+  midRow = baseRow - 0.5 * S;
+  const n = cols * rows;
+  ch = new Array(n).fill("");
+  colr = new Uint8Array(n); zb = new Float32Array(n); kindBuf = new Uint8Array(n);
+  msgBox.style.top = Math.round(oy + (baseRow + 0.12 * S + 2) * lh) + "px";
+  buildScene();
+  buildSnow();
+}
+
+function buildScene() {
+  const pts = [];
+  const push = (x, y, z, nx, ny, nz, kind, color, a, noise, g) => pts.push(x, y, z, nx, ny, nz, kind, color, a, noise, g);
+  const KS = 1.8; // samples per cell
+
+  // branches
+  TIERS.forEach((tier) => {
+    const nY = Math.ceil((tier.y1 - tier.y0) * S * 2.4);
+    for (let j = 0; j <= nY; j++) {
+      const t = Math.min(0.995, j / nY);
+      const r0 = tier.R * (1 - t);
+      const nT = Math.max(8, Math.ceil(2 * Math.PI * r0 * S * ax * KS));
+      for (let q = 0; q < nT; q++) {
+        const th = ((q + (j % 2) * 0.5) / nT) * Math.PI * 2;
+        const p = surf(tier, t, th);
+        const pt = surf(tier, Math.min(1, t + 0.01), th);
+        const pq = surf(tier, t, th + 0.01);
+        const ux = pq[0] - p[0], uy = pq[1] - p[1], uz = pq[2] - p[2];
+        const vx = pt[0] - p[0], vy = pt[1] - p[1], vz = pt[2] - p[2];
+        let nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux;
+        if (nx * Math.cos(th) + nz * Math.sin(th) < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        const nl = Math.hypot(nx, ny, nz) || 1;
+        // grooves between clumps and the band under the tier above are darker
+        let ao = 0.42 + 0.58 * p[3];
+        for (const up of TIERS) {
+          const gap = up.y0 - p[1];
+          if (up !== tier && gap > 0 && gap < 0.06) ao *= 0.45 + 0.55 * (gap / 0.06);
+        }
+        const noise = Math.random();
+        const snowy = (t < 0.06 && p[3] > 0.6 && noise > 0.4) || (p[3] > 0.85 && noise > 0.985 && t < 0.5);
+        push(p[0], p[1], p[2], nx / nl, ny / nl, nz / nl, snowy ? K_SNOWCAP : K_NEEDLE, 0, ao, noise, 0);
+      }
+    }
+  });
+
+  // trunk
+  const tr = 0.045, trunkH = 0.12, nYt = Math.ceil(trunkH * S * 2.4);
+  for (let j = 0; j <= nYt; j++) {
+    const y = (j / nYt) * trunkH;
+    const nT = Math.max(8, Math.ceil(2 * Math.PI * tr * S * ax * KS));
+    for (let q = 0; q < nT; q++) {
+      const th = (q / nT) * Math.PI * 2, c = Math.cos(th), s = Math.sin(th);
+      push(tr * c, y, tr * s, c, 0, s, K_TRUNK, 0, 1, Math.random(), 0);
+    }
+  }
+
+  // string of lights spiralling up
+  const turns = 3.3, NB = Math.round(30 + S * 1.4);
+  const spiral = [];
+  let total = 0, prev = null;
+  for (let k = 0; k <= 2000; k++) {
+    const u = k / 2000, y = 0.12 + u * 0.76, th = u * turns * Math.PI * 2;
+    const r = outerR(y) * 0.97 + 0.012;
+    const pt = [r * Math.cos(th), y, r * Math.sin(th), th];
+    if (prev) total += Math.hypot(pt[0] - prev[0], pt[1] - prev[1], pt[2] - prev[2]);
+    spiral.push([pt, total]);
+    prev = pt;
+  }
+  let si = 0;
+  for (let b = 0; b < NB; b++) {
+    const target = ((b + 0.5) / NB) * total;
+    while (si < spiral.length - 1 && spiral[si][1] < target) si++;
+    const [x, y, z, th] = spiral[si][0];
+    push(x, y, z, Math.cos(th), 0.3, Math.sin(th), K_BULB, BULBS[b % BULBS.length], Math.random() * 6.283, Math.random(), b % 3 === 0 ? 1 : 0);
+  }
+
+  // bead garlands draped in swags around the lower tiers
+  for (let i = 0; i < 4; i++) {
+    const tier = TIERS[i];
+    const yb = tier.y0 + 0.42 * (tier.y1 - tier.y0);
+    const nSw = 5 + i;
+    const N = Math.ceil(2 * Math.PI * outerR(yb) * S * ax * 1.4);
+    for (let k = 0; k < N; k++) {
+      const th = (k / N) * Math.PI * 2 + i * 0.7;
+      const frac = ((th * nSw) / (2 * Math.PI)) % 1;
+      const y = yb - 0.045 * Math.sin(Math.PI * frac);
+      const r = outerR(y) * 0.98 + 0.014;
+      const c = Math.cos(th), s = Math.sin(th);
+      push(r * c, y, r * s, c, 0.3, s, K_BEAD, i % 2 ? GOLD_M : SILVER, Math.random() * 6.283, Math.random(), k % 3 === 0 ? 1 : 0);
+    }
+  }
+
+  // ornaments: small shaded spheres hanging from the clump tips
+  const ORN = [[RED, RED_D], [GOLD, GOLD_D], [BLUE, BLUE_D], [VIOLET, VIOLET_D], [SILVER, SNOW_D], [RED, RED_D]];
+  const NO = 42;
+  for (let o = 0; o < NO; o++) {
+    const tier = TIERS[o % 5];
+    const t = 0.12 + Math.random() * 0.6;
+    const k = Math.floor(Math.random() * tier.nb);
+    const th = (2 * Math.PI * k) / tier.nb - tier.off + (Math.random() - 0.5) * 0.15;
+    const p = surf(tier, t, th);
+    const rad = 0.011 + Math.random() * 0.008 + (o % 6 === 0 ? 0.006 : 0);
+    const rr = Math.hypot(p[0], p[2]) + rad * 0.6;
+    const ocx = rr * Math.cos(th), ocy = p[1] - rad * 0.8, ocz = rr * Math.sin(th);
+    const [bright, dark] = ORN[o % ORN.length];
+    const nLat = Math.max(3, Math.ceil(rad * S * 3)), nLon = Math.max(8, Math.ceil(2 * Math.PI * rad * S * ax * 2));
+    for (let a = 0; a <= nLat; a++) {
+      const phi = (a / nLat) * Math.PI;
+      for (let b = 0; b < nLon; b++) {
+        const lam = (b / nLon) * Math.PI * 2;
+        const nx = Math.sin(phi) * Math.cos(lam), ny = Math.cos(phi), nz = Math.sin(phi) * Math.sin(lam);
+        push(ocx + nx * rad, ocy + ny * rad, ocz + nz * rad, nx, ny, nz, K_ORN, bright, 1, Math.random(), dark);
+      }
+    }
+  }
+
+  // 3D star: a bevelled five-point star that turns with the tree
+  const sR = 0.115, sIn = 0.047, sY = 0.985 + sR * 0.8, th2 = 0.014;
+  const inStar = (x, y) => {
+    const a = Math.atan2(x, y);
+    const seg = (2 * Math.PI) / 5;
+    let m = ((a % seg) + seg) % seg;
+    m = Math.abs(m - seg / 2) / (seg / 2); // 1 at a point, 0 between points
+    const lim = sIn + (sR - sIn) * m;
+    return Math.hypot(x, y) <= lim;
+  };
+  const stepX = 1 / (S * ax * 1.6), stepY = 1 / (S * 2.2);
+  for (let y = -sR; y <= sR; y += stepY) {
+    for (let x = -sR; x <= sR; x += stepX) {
+      if (!inStar(x, y)) continue;
+      const d = Math.hypot(x, y) || 1;
+      for (const side of [1, -1]) {
+        let nx = (x / d) * 0.55, ny = (y / d) * 0.55, nz = side;
+        const l = Math.hypot(nx, ny, nz);
+        push(x, sY + y, side * th2, nx / l, ny / l, nz / l, K_STAR, GOLD, 1, Math.random(), 0);
+      }
+    }
+  }
+  // spike holding the star
+  for (let y = 0.975; y < sY - sR * 0.6; y += stepY) push(0, y, 0, 0, 0, 1, K_STAR, GOLD_M, 1, 0.5, 0);
+
+  // gifts under the tree
+  const GIFTS = [
+    { ang: 0.5, r: 0.36, w: 0.09, h: 0.065, d: 0.08, rot: 0.3, c: [RED, RED_D], rb: [GOLD, GOLD_D] },
+    { ang: 2.4, r: 0.38, w: 0.08, h: 0.05, d: 0.08, rot: 1.1, c: [BLUE, BLUE_D], rb: [SILVER, SNOW_D] },
+    { ang: 4.2, r: 0.34, w: 0.065, h: 0.075, d: 0.065, rot: 0.7, c: [VIOLET, VIOLET_D], rb: [GOLD, GOLD_D] },
+    { ang: 1.35, r: 0.44, w: 0.055, h: 0.04, d: 0.055, rot: 0.2, c: [GOLD, GOLD_D], rb: [RED, RED_D] },
+  ];
+  giftAngles = GIFTS.map((g) => g.ang);
+  const st = 1 / (S * 1.9);
+  for (const g of GIFTS) {
+    const gx = g.r * Math.cos(g.ang), gz = g.r * Math.sin(g.ang);
+    const cr = Math.cos(g.rot), sr = Math.sin(g.rot), rw = Math.min(g.w, g.d) * 0.12;
+    const add = (lx, ly, lz, nx, ny, nz, ribbon) => {
+      const x = lx * cr - lz * sr + gx, z = lx * sr + lz * cr + gz;
+      const wx = nx * cr - nz * sr, wz = nx * sr + nz * cr;
+      const col = ribbon ? g.rb : g.c;
+      push(x, ly, z, wx, ny, wz, ribbon ? K_RIBBON : K_GIFT, col[0], 1, Math.random(), col[1]);
+    };
+    for (let lx = -g.w / 2; lx <= g.w / 2 + 1e-6; lx += st)
+      for (let lz = -g.d / 2; lz <= g.d / 2 + 1e-6; lz += st)
+        add(lx, g.h, lz, 0, 1, 0, Math.abs(lx) < rw || Math.abs(lz) < rw);
+    for (let ly = 0; ly <= g.h; ly += st / 1.6) {
+      for (let lz = -g.d / 2; lz <= g.d / 2 + 1e-6; lz += st) {
+        add(g.w / 2, ly, lz, 1, 0, 0, Math.abs(lz) < rw);
+        add(-g.w / 2, ly, lz, -1, 0, 0, Math.abs(lz) < rw);
+      }
+      for (let lx = -g.w / 2; lx <= g.w / 2 + 1e-6; lx += st) {
+        add(lx, ly, g.d / 2, 0, 0, 1, Math.abs(lx) < rw);
+        add(lx, ly, -g.d / 2, 0, 0, -1, Math.abs(lx) < rw);
+      }
+    }
+    // bow
+    for (const bx of [-0.013, 0.013]) {
+      for (let a = 0; a < 10; a++) {
+        const an = (a / 10) * Math.PI * 2;
+        add(bx + Math.cos(an) * 0.009, g.h + 0.008 + Math.sin(an) * 0.007, 0, Math.cos(an), Math.sin(an), 0.3, true);
+      }
+    }
+  }
+
+  // snowy ground disc, with the tree's shadow on it
+  const gR = Math.min(0.6, (cols * 0.47) / (S * ax)), sx = 1 / (S * ax * 1.1), sz = 1 / (S * 1.0);
+  for (let x = -gR; x <= gR; x += sx) {
+    for (let z = -gR; z <= gR; z += sz) {
+      const r = Math.hypot(x, z);
+      if (r > gR) continue;
+      const noise = Math.random();
+      if (r > gR * 0.68 && noise > (gR - r) / (gR * 0.32)) continue;
+      const shadow = r < 0.45 ? 0.4 + 0.6 * Math.pow(r / 0.45, 2) : 1;
+      const jx = (Math.random() - 0.5) * sx * 0.5, jz = (Math.random() - 0.5) * sz * 0.5;
+      push(x + jx, -0.004, z + jz, 0, 1, 0, K_GROUND, 0, shadow, noise, 0);
+    }
+  }
+
+  P = new Float32Array(pts);
+  nPts = pts.length / STRIDE;
+}
+
+function buildSnow() {
+  const hw = Math.max(1, (cols / 2 / (S * ax)) * 1.25);
+  const yTop = 0.5 + midRow / S + 0.1, yBot = 0.5 - (rows - midRow) / S;
+  const count = reduce ? 0 : Math.round((cols * rows) / 34);
+  flakes = [];
+  for (let i = 0; i < count; i++) {
+    flakes.push({
+      x: (Math.random() * 2 - 1) * hw, z: Math.random() * 2 - 1, y: yBot + Math.random() * (yTop - yBot),
+      vy: 0.05 + Math.random() * 0.1, ph: Math.random() * 6.283, hw, yTop, yBot,
+    });
+  }
+  sky = [];
+  const nSky = Math.round((cols * rows) / 120);
+  for (let i = 0; i < nSky; i++) sky.push({ c: Math.random() * cols, r: Math.random() * rows * 0.75, ph: Math.random() * 6.283 });
+}
+
+function put(c, r, g, color, z, kind) {
+  c = Math.round(c); r = Math.round(r);
+  if (c < 0 || c >= cols || r < 0 || r >= rows) return -1;
+  const i = r * cols + c;
+  if (z <= zb[i]) return -1;
+  zb[i] = z; ch[i] = g; colr[i] = color; kindBuf[i] = kind;
+  return i;
+}
+
+function ease(k) { return 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3); }
+const clamp01 = (v) => (v < 0 ? 0 : v > 0.999 ? 0.999 : v);
+
+// light from upper-left-front, view along +z
+const LN = Math.hypot(-0.5, 0.6, 0.65);
+const Lx = -0.5 / LN, Ly = 0.6 / LN, Lz = 0.65 / LN;
+const HN = Math.hypot(Lx, Ly, Lz + 1);
+const Hx = Lx / HN, Hy = Ly / HN, Hz = (Lz + 1) / HN;
+
+function frame(nowMs) {
+  raf = requestAnimationFrame(frame);
+  const now = nowMs / 1000;
+  const dt = Math.min(0.05, last ? now - last : 0.016);
+  last = now;
+  const t = now - t0;
+
+  if (phase === "grow") {
+    const p = t / 3;
+    growY = ease(p) * 1.2 - 0.03;
+    if (p >= 1) {
+      phase = "live";
+      growY = 9;
+      lightBoost = 1;
+      const s = project(0, 1.07, 0);
+      burst(s[0], s[1], 50, 1.2, null);
+      haptic("success");
+      Sound.star();
+      Sound.startMusic();
+      showKitty(now);
+      startTyping();
+    }
+  }
+
+  if (!drag) {
+    yawVel += (autoVel - yawVel) * Math.min(1, dt * 0.9);
+    yaw += yawVel * dt;
+    pitch += (0.16 - pitch) * Math.min(1, dt * 1.2);
+  }
+  Sound.wind(drag ? (nowMs - drag.t < 120 ? Math.abs(drag.v) : 0) : Math.abs(yawVel));
+  wobble *= Math.exp(-dt * 2.6);
+  lightBoost *= Math.exp(-dt * 2.2);
+
+  ch.fill(""); zb.fill(-1e9); kindBuf.fill(0);
+  lit.length = 0;
+
+  // far sky: faint twinkles
+  for (const s of sky) {
+    const tw = Math.sin(now * 0.9 + s.ph);
+    put(s.c, s.r, tw > 0.6 ? "+" : ".", SNOW_D, -1e8, 0);
+  }
+
+  const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
+  const sway = wobble * Math.sin(now * 30) * 2.2;
+
+  for (let i = 0; i < nPts; i++) {
+    const o = i * STRIDE;
+    const y = P[o + 1];
+    if (y > growY) continue;
+    const kind = P[o + 6];
+    // rotate normal first so hidden needles are skipped cheaply
+    const nx = P[o + 3], ny = P[o + 4], nz = P[o + 5];
+    const nx1 = nx * cY - nz * sY, nz1 = nx * sY + nz * cY;
+    const ny2 = ny * cP - nz1 * sP, nz2 = ny * sP + nz1 * cP;
+    if ((kind === K_NEEDLE || kind === K_SNOWCAP || kind === K_TRUNK || kind === K_ORN || kind === K_GIFT || kind === K_RIBBON) && nz2 < -0.25) continue;
+    const x = P[o], z = P[o + 2];
+    const x1 = x * cY - z * sY, z1 = x * sY + z * cY, y1 = y - 0.5;
+    const y2 = y1 * cP - z1 * sP, z2 = y1 * sP + z1 * cP;
+    const f = CAM_D / (CAM_D - z2);
+    const col = cx + x1 * f * S * ax + sway * Math.max(0, y) * Math.max(0, y);
+    const row = midRow - y2 * f * S;
+    const fog = 0.6 + 0.4 * Math.min(1, Math.max(0, (z2 + 0.55) / 1.1));
+    const lam = Math.max(0, nx1 * Lx + ny2 * Ly + nz2 * Lz);
+    const noise = P[o + 9];
+
+    switch (kind) {
+      case K_NEEDLE: {
+        const v = clamp01(((0.1 + 0.9 * lam) * P[o + 8]) * fog + (noise - 0.5) * 0.22);
+        const idx = Math.floor(v * 8);
+        put(col, row, NEEDLE[idx], idx, z2, 1);
+        break;
+      }
+      case K_SNOWCAP: {
+        const v = lam * fog * (0.5 + 0.5 * P[o + 8]);
+        put(col, row, v > 0.45 ? "~" : v > 0.22 ? "-" : ".", v > 0.45 ? SNOW : v > 0.22 ? SNOW_M : SNOW_D, z2 + 0.002, 1);
+        break;
+      }
+      case K_TRUNK: {
+        const v = lam * fog;
+        put(col, row, v > 0.4 ? "#" : "|", v > 0.4 ? 9 : 8, z2, 2);
+        break;
+      }
+      case K_BULB: {
+        let tw = 0.5 + 0.5 * Math.sin(now * (1.5 + noise * 2.4) + P[o + 8]);
+        tw = Math.max(tw, lightBoost);
+        if (tw > 0.42) {
+          const c = P[o + 7];
+          const idx = put(col, row, P[o + 10] ? "o" : "*", c, z2 + 0.01, 2);
+          if (idx >= 0) lit.push(idx, c, z2);
+        } else put(col, row, ".", GOLD_D, z2 + 0.01, 2);
+        break;
+      }
+      case K_BEAD: {
+        const sp = Math.sin(now * 2.6 + P[o + 8] * 4);
+        if (sp > 0.97) put(col, row, "+", WHITE, z2 + 0.006, 2);
+        else put(col, row, P[o + 10] ? "o" : ".", lam * fog > 0.3 ? P[o + 7] : GOLD_D, z2 + 0.006, 2);
+        break;
+      }
+      case K_ORN: {
+        const spec = Math.pow(Math.max(0, nx1 * Hx + ny2 * Hy + nz2 * Hz), 30);
+        const v = (0.15 + 0.85 * lam) * fog;
+        if (spec > 0.5) put(col, row, "*", WHITE, z2 + 0.02, 2);
+        else if (v > 0.55) put(col, row, "@", P[o + 7], z2 + 0.02, 2);
+        else if (v > 0.32) put(col, row, "O", P[o + 7], z2 + 0.02, 2);
+        else put(col, row, v > 0.16 ? "o" : ".", P[o + 10], z2 + 0.02, 2);
+        break;
+      }
+      case K_STAR: {
+        const spec = Math.pow(Math.max(0, nx1 * Hx + ny2 * Hy + nz2 * Hz), 20);
+        const v = 0.35 + 0.65 * lam + lightBoost * 0.3;
+        if (spec > 0.55 || noise > 0.985) put(col, row, "*", WHITE, z2 + 0.05, 2);
+        else if (v > 0.7) put(col, row, "#", GOLD, z2 + 0.05, 2);
+        else if (v > 0.5) put(col, row, "+", GOLD, z2 + 0.05, 2);
+        else put(col, row, ":", GOLD_M, z2 + 0.05, 2);
+        break;
+      }
+      case K_GIFT: {
+        const v = (0.15 + 0.85 * lam) * fog;
+        const top = ny2 > 0.6;
+        put(col, row, top ? "=" : v > 0.5 ? "#" : "%", v > 0.45 ? P[o + 7] : P[o + 10], z2 + 0.004, 2);
+        break;
+      }
+      case K_RIBBON: {
+        const v = (0.2 + 0.8 * lam) * fog;
+        put(col, row, "#", v > 0.4 ? P[o + 7] : P[o + 10], z2 + 0.006, 2);
+        break;
+      }
+      case K_GROUND: {
+        const v = (0.3 + 0.55 * lam) * P[o + 8] * fog + (noise - 0.5) * 0.2;
+        if (noise > 0.99 && Math.sin(now * 2 + noise * 400) > 0.6) put(col, row, "*", WHITE, z2 - 0.5, 3);
+        else if (v > 0.2) put(col, row, v > 0.62 ? "~" : v > 0.42 ? ":" : ".", v > 0.62 ? SNOW_M : SNOW_D, z2 - 0.5, 3);
+        break;
+      }
+    }
+  }
+
+  // lit bulbs tint the needles around them
+  for (let k = 0; k < lit.length; k += 3) {
+    const i = lit[k], tint = TINT[lit[k + 1]], z = lit[k + 2];
+    const r = (i / cols) | 0, c = i - r * cols;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        if (!dr && !dc) continue;
+        const rr = r + dr, cc = c + dc;
+        if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+        const j = rr * cols + cc;
+        if (kindBuf[j] === 1 && colr[j] < 8 && zb[j] > z - 0.08) colr[j] = tint;
+      }
+    }
+  }
+
+  // star sparkle rays
+  if (growY > 1 && !reduce) {
+    const s = project(0, 1.077, 0);
+    const pulse = Math.sin(now * 2.2);
+    if (pulse > 0.3 || lightBoost > 0.3) {
+      const L = pulse > 0.75 || lightBoost > 0.5 ? 6 : 5;
+      put(s[0] - L - 2, s[1], "-", GOLD_M, 50, 3); put(s[0] + L + 2, s[1], "-", GOLD_M, 50, 3);
+      put(s[0], s[1] - 5, "|", GOLD_M, 50, 3);
+      put(s[0] - L, s[1] - 3, "\\", GOLD_D, 50, 3); put(s[0] + L, s[1] - 3, "/", GOLD_D, 50, 3);
+    }
+  }
+
+  drawKitty(now, dt);
+
+  // 3D snowfall around the tree
+  for (const fl of flakes) {
+    if (!reduce) {
+      fl.y -= fl.vy * dt;
+      fl.x += Math.sin(now * 0.6 + fl.ph) * 0.02 * dt;
+      if (fl.y < fl.yBot) { fl.y = fl.yTop; fl.x = (Math.random() * 2 - 1) * fl.hw; fl.z = Math.random() * 2 - 1; }
+    }
+    const x1 = fl.x * cY - fl.z * sY, z1 = fl.x * sY + fl.z * cY, y1 = fl.y - 0.5;
+    const y2 = y1 * cP - z1 * sP, z2 = y1 * sP + z1 * cP;
+    const f = CAM_D / (CAM_D - z2);
+    const g = z2 > 0.4 ? "*" : z2 > -0.3 ? "." : "'";
+    put(cx + x1 * f * S * ax, midRow - y2 * f * S, g === "'" ? "." : g, z2 > 0.4 ? SNOW : z2 > -0.3 ? SNOW_M : SNOW_D, z2 + 0.03, 3);
+  }
+
+  // tap rings
+  rings = rings.filter((rg) => (rg.age += dt) < 0.55);
+  for (const rg of rings) {
+    const rad = 2 + rg.age * 34;
+    const n = Math.round(rad * 3.2);
+    const g = rg.age < 0.25 ? "*" : rg.age < 0.4 ? "+" : ".";
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      put(rg.c + Math.cos(a) * rad, rg.r + (Math.sin(a) * rad) / ax, g, rg.color, 300, 3);
+    }
+  }
+
+  // sparks and knocked-off snow
+  sparks = sparks.filter((s) => (s.life -= dt) > 0);
+  for (const s of sparks) {
+    s.vx *= Math.exp(-dt * s.drag); s.vy *= Math.exp(-dt * s.drag);
+    s.vy += s.grav * dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    const k = 1 - s.life / s.max;
+    const g = s.snow ? (k < 0.5 ? "*" : ".") : k < 0.3 ? "*" : k < 0.6 ? "+" : k < 0.85 ? "'" : ".";
+    put(s.x, s.y, g, s.color, 400, 3);
+  }
+
+  draw();
+}
+
+function project(x, y, z) {
+  const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
+  const x1 = x * cY - z * sY, z1 = x * sY + z * cY, y1 = y - 0.5;
+  const y2 = y1 * cP - z1 * sP, z2 = y1 * sP + z1 * cP;
+  const f = CAM_D / (CAM_D - z2);
+  const sway = wobble * Math.sin(last * 30) * 2.2 * y * y;
+  return [cx + x1 * f * S * ax + sway, midRow - y2 * f * S, z2];
+}
+
+function draw() {
+  ctx.fillStyle = "#0b1322";
+  ctx.fillRect(0, 0, W, H);
+  for (const g of groups) g.length = 0;
+  for (let i = 0; i < ch.length; i++) if (ch[i]) groups[colr[i]].push(i);
+  for (let c = 0; c < PAL.length; c++) {
+    const list = groups[c];
+    if (!list.length) continue;
+    ctx.fillStyle = PAL[c];
+    if (GLOW.has(c)) { ctx.shadowColor = PAL[c]; ctx.shadowBlur = fs * 0.9; }
+    else ctx.shadowBlur = 0;
+    for (const i of list) {
+      const r = (i / cols) | 0, cc = i - r * cols;
+      ctx.fillText(ch[i], ox + cc * cw, oy + r * lh);
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+function burst(c, r, n, power) {
+  if (reduce) return;
+  const colors = [GOLD, RED, BLUE, WARM, VIOLET, GOLD];
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = (6 + Math.random() * 20) * power;
+    const life = 0.6 + Math.random() * 0.9;
+    sparks.push({ x: c, y: r, vx: Math.cos(a) * sp, vy: (Math.sin(a) * sp) / ax - 5, life, max: life, color: colors[(Math.random() * colors.length) | 0], drag: 1.6, grav: 9, snow: false });
+  }
+}
+
+function snowFall(c, r) {
+  if (reduce) return;
+  for (let i = 0; i < 18; i++) {
+    const life = 0.9 + Math.random() * 0.8;
+    sparks.push({ x: c + (Math.random() - 0.5) * 8, y: r + (Math.random() - 0.5) * 2, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, life, max: life, color: Math.random() < 0.6 ? SNOW : SNOW_M, drag: 0.5, grav: 14, snow: true });
+  }
+}
+
+// ---- kitten: an ASCII sprite sitting in the snow, part of the 3D scene ----
+const K_KITTY = 4; // value in kindBuf for kitten cells
+const kitty = { on: false, x: 0, z: 0, happy: 0, hop: 0, lastTouch: 0, nextZ: 0, bubbles: [] };
+let giftAngles = [];
+const KITTY_R = 0.4; // distance from the trunk: just under the tips of the lowest branches
+
+function showKitty(now) {
+  // Sits under the tree and turns with it. It first shows up at the front-left as seen
+  // right now, nudged sideways if a gift is already sitting there.
+  const cY = Math.cos(yaw), sY = Math.sin(yaw);
+  const want = Math.atan2(0.85, -0.5); // front-left, in screen terms
+  let spot = null;
+  for (let k = 0; k < 25 && spot === null; k++) {
+    const va = want + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.12;
+    const x1 = Math.cos(va), z1 = Math.sin(va);
+    const wa = Math.atan2(-x1 * sY + z1 * cY, x1 * cY + z1 * sY); // screen angle -> tree angle
+    const clear = giftAngles.every((g) => Math.abs(Math.atan2(Math.sin(wa - g), Math.cos(wa - g))) > 0.55);
+    if (clear) spot = wa;
+  }
+  if (spot === null) spot = Math.PI;
+  kitty.x = KITTY_R * Math.cos(spot);
+  kitty.z = KITTY_R * Math.sin(spot);
+  kitty.on = true;
+  kitty.hop = 0.3;
+  kitty.lastTouch = now;
+}
+
+function petKitty() {
+  kitty.happy = 1.8;
+  kitty.hop = 0.3;
+  kitty.lastTouch = last;
+  kitty.bubbles.push({ text: "мяу!", dx: 6, dy: 0, age: 0, life: 1.5, color: SNOW });
+  kitty.bubbles.push({ text: "<3", dx: -9, dy: 0, age: 0, life: 1.3, color: RED });
+  Sound.meow();
+  haptic("light");
+}
+
+function drawKitty(now, dt) {
+  if (!kitty.on) return;
+  kitty.happy = Math.max(0, kitty.happy - dt);
+  kitty.hop = Math.max(0, kitty.hop - dt);
+  const asleep = !reduce && kitty.happy === 0 && now - kitty.lastTouch > 17;
+
+  const p = project(kitty.x, 0, kitty.z);
+  const blink = now % 4.3 < 0.14;
+  const eye = kitty.happy > 0 ? "^" : asleep || blink ? "-" : "o";
+  const mouth = kitty.happy > 1.3 ? "o" : "w"; // little open mouth right after a meow
+  const tail = asleep ? "__" : ["_)", "_/", "~'", "_)", "_|"][Math.floor(now * 2.2) % 5];
+  // a chibi silver tabby: big round head, dot eyes, tiny "w" mouth, pink blush,
+  // a few stripes on the forehead, white chin, chest and paws
+  const sprite = [
+    "  /\\       /\\  ",
+    " /,,\\_____/,,\\ ",
+    " (    ;;;    ) ",
+    "(    " + eye + "   " + eye + "    )",
+    "=(  ~  " + mouth + "  ~  )=",
+    "  `-._____.-'  ",
+    "   /`-:::-`\\   ",
+    '  ( (")_(") )' + tail,
+  ];
+  // per-cell colors: g fur, d stripe, w white, y eye, n nose/blush, p inner ear,
+  // b opaque fur gap (hides the branches behind), space = see-through
+  const cmap = [
+    "  gg       gg  ",
+    " gppgggggggppg ",
+    " gbbbbdddbbbbg ",
+    "gbbbbybbbybbbbg",
+    "wgbbnbbnbbnbbgw",
+    "  gggwwwwwggg  ",
+    "   gddwwwddg   ",
+    "  gbwwwgwwwbgdd",
+  ];
+  const CK = { g: KIT, d: KIT_D, w: KIT_W, y: KIT_EYE, n: KIT_NOSE, p: KIT_EAR, b: KIT };
+  const c0 = Math.round(p[0]) - 7;
+  const r0 = Math.round(p[1]) - 7 - (kitty.hop > 0 ? 1 : 0);
+  // a flat sprite: nudge it forward so the lowest branches don't cut it up.
+  // Facing us it sits fully in front; turned to the side/back the tree covers it as usual.
+  const front = (kitty.x * Math.sin(yaw) + kitty.z * Math.cos(yaw)) / KITTY_R; // -1 back .. 1 front
+  const k = Math.max(0, Math.min(1, (front + 0.1) / 0.6));
+  const z = p[2] + 0.22 + 0.6 * k * k * (3 - 2 * k);
+  for (let j = 0; j < sprite.length; j++) {
+    for (let i = 0; i < sprite[j].length; i++) {
+      const m = cmap[j][i];
+      if (!m || m === " ") continue;
+      let color = CK[m];
+      if (m === "y" && eye !== "o") color = KIT_D; // closed eyes are dark lines
+      put(c0 + i, r0 + j, m === "b" ? " " : sprite[j][i], color, z, K_KITTY);
+    }
+  }
+
+  // floating "z" while asleep
+  if (asleep && now > kitty.nextZ) {
+    kitty.bubbles.push({ text: Math.random() < 0.5 ? "z" : "Z", dx: 5, dy: 0, age: 0, life: 2.2, color: SNOW_M });
+    kitty.nextZ = now + 1.1;
+  }
+  kitty.bubbles = kitty.bubbles.filter((b) => (b.age += dt) < b.life);
+  for (const b of kitty.bubbles) {
+    const k = b.age / b.life;
+    const rr = r0 + b.dy - k * 4;
+    const cc = c0 + 7 + b.dx + Math.sin(b.age * 4) * 0.6;
+    const color = k > 0.7 ? SNOW_D : b.color;
+    for (let i = 0; i < b.text.length; i++) put(cc + i, rr, b.text[i], color, 450, 3);
+  }
+}
+
+function tapAt(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const c = (clientX - rect.left - ox) / cw, r = (clientY - rect.top - oy) / lh;
+  const ci = Math.round(c), ri = Math.round(r);
+  // the kitten gets its own reaction instead of a firework
+  for (let dr = -1; dr <= 1; dr++)
+    for (let dc = -1; dc <= 1; dc++) {
+      const rr = ri + dr, cc = ci + dc;
+      if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && kindBuf[rr * cols + cc] === K_KITTY) { petKitty(); return; }
+    }
+  kitty.lastTouch = last;
+  let onTree = false;
+  for (let dr = -1; dr <= 1 && !onTree; dr++)
+    for (let dc = -2; dc <= 2; dc++) {
+      const rr = ri + dr, cc = ci + dc;
+      const k = rr >= 0 && rr < rows && cc >= 0 && cc < cols ? kindBuf[rr * cols + cc] : 0;
+      if (k === 1 || k === 2) { onTree = true; break; }
+    }
+  burst(c, r, onTree ? 32 : 26, 1);
+  Sound.tap(Math.max(0, Math.min(1, r / rows)), onTree);
+  if (!reduce) rings.push({ c, r, age: 0, color: [GOLD, WARM, BLUE, VIOLET][(Math.random() * 4) | 0] });
+  if (onTree) {
+    snowFall(c, r);
+    wobble = 1;
+    lightBoost = 1;
+    yawVel += (c < cx ? 1 : -1) * 3.2;
+    haptic("medium");
+  } else {
+    haptic("light");
+  }
+}
+
+// ---- sound: everything is synthesized with Web Audio, no audio files ----
+const Sound = (() => {
+  let ac = null, master, sfx, music, windGain, windFilter, noiseBuf;
+  let on = true, musicOn = false, evIdx = 0, loopStart = 0;
+  try { on = localStorage.getItem("tree-sound") !== "off"; } catch (e) {}
+
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const PENTA = [0, 2, 4, 7, 9];
+  const pentaNote = (k) => 72 + 12 * Math.floor(k / 5) + PENTA[((k % 5) + 5) % 5];
+  const BOX = [[1, 1], [3.0, 0.16], [5.2, 0.05]]; // music-box tine
+  // "Carol of the Bells": melody from Leontovych's "Shchedryk" (1914, public domain)
+  const BEAT = 0.34; // seconds per quarter note, 3/4 time
+  const SONG = (() => {
+    const OST = [[70, 0, 1], [69, 1, 0.5], [70, 1.5, 0.5], [67, 2, 1]]; // Bb A Bb G  (q e e q)
+    const HARM = [74, 72, 74, 70]; // the same figure a third above
+    const BASS = [55, 53, 51, 50]; // falling bass G F Eb D, one note per bar
+    const plan = [
+      { bars: 4, ost: 0.13 },                                                    // bells alone
+      { bars: 8, ost: 0.14, bass: 0.11 },                                        // bass comes in
+      { bars: 8, ost: 0.14, bass: 0.11, harm: 0.08, shake: true },               // harmony + sleigh bells
+      { bars: 8, ost: 0.14, high: 0.12, harm: 0.07, bass: 0.12, shake: true, toll: true }, // full
+      { bars: 4, ost: 0.11, fade: true },                                        // back to bells alone
+    ];
+    const ev = [];
+    let bar = 0;
+    for (const sec of plan) {
+      for (let i = 0; i < sec.bars; i++, bar++) {
+        const b0 = bar * 3;
+        const fade = sec.fade ? 1 - (i / sec.bars) * 0.6 : 1;
+        OST.forEach(([m, at, len], k) => {
+          ev.push({ beat: b0 + at, kind: "box", midi: m + 12, vol: sec.ost * fade, len });
+          if (sec.high) ev.push({ beat: b0 + at, kind: "box", midi: m + 24, vol: sec.high, len });
+          if (sec.harm) ev.push({ beat: b0 + at, kind: "box", midi: HARM[k] + 12, vol: sec.harm, len });
+        });
+        if (sec.bass) ev.push({ beat: b0, kind: "bass", midi: BASS[i % 4], vol: sec.bass });
+        if (sec.toll) ev.push({ beat: b0, kind: "toll", midi: BASS[i % 4] + 12, vol: 0.07 });
+        if (sec.shake) for (let k = 0; k < 3; k++) ev.push({ beat: b0 + k, kind: "shake", accent: k === 0 });
+      }
+    }
+    ev.sort((a, b) => a.beat - b.beat);
+    return { ev, beats: bar * 3, gap: 6 }; // 32 bars, then two quiet bars before it repeats
+  })();
+
+  function init() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    if (!ac) {
+      // lets iPhones play sound even with the silent switch on, where supported
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+      ac = new AC();
+      master = ac.createGain();
+      master.gain.value = on ? 1 : 0;
+      const comp = ac.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.ratio.value = 4;
+      master.connect(comp); comp.connect(ac.destination);
+      const verb = ac.createConvolver();
+      verb.buffer = impulse(2.6, 3);
+      const wet = ac.createGain(); wet.gain.value = 0.38;
+      verb.connect(wet); wet.connect(master);
+      sfx = ac.createGain(); sfx.gain.value = 0.7; sfx.connect(master); sfx.connect(verb);
+      music = ac.createGain(); music.gain.value = 0.2; music.connect(master); music.connect(verb);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      // wind that follows how fast the tree spins
+      const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      windFilter = ac.createBiquadFilter(); windFilter.type = "bandpass"; windFilter.frequency.value = 600; windFilter.Q.value = 0.8;
+      windGain = ac.createGain(); windGain.gain.value = 0;
+      src.connect(windFilter); windFilter.connect(windGain); windGain.connect(master);
+      src.start();
+      setInterval(schedule, 90);
+      document.addEventListener("visibilitychange", () => {
+        if (!ac) return;
+        if (document.hidden) ac.suspend(); else ac.resume();
+      });
+    }
+    if (ac.state !== "running") ac.resume();
+    return true;
+  }
+
+  function impulse(sec, decay) {
+    const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+    return b;
+  }
+
+  // a bell: a few sine partials; the high ones fade first
+  function bell(midi, t, vol, dur, dest, partials) {
+    const f = hz(midi);
+    const parts = partials || [[1, 1], [2.0, 0.45], [3.01, 0.22], [4.17, 0.12], [5.43, 0.06]];
+    for (const [ratio, amp] of parts) {
+      if (f * ratio > 18000) continue;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "sine";
+      o.frequency.value = f * ratio;
+      const d = dur / Math.sqrt(ratio);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * amp), t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(dest || sfx);
+      o.start(t); o.stop(t + d + 0.05);
+    }
+  }
+
+  function noiseHit(t, vol, freq, q, dur, dest) {
+    const s = ac.createBufferSource(); s.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(dest || sfx);
+    s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.05);
+  }
+
+  // filtered noise burst with a fast attack and exponential fade
+  function noiseBurst(t, vol, type, freq, q, dur) {
+    const s = ac.createBufferSource(); s.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(sfx);
+    s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.05);
+  }
+
+  // firework: low thump, sharp crack, then a scatter of fading crackles
+  function firework(t, size) {
+    // thump: a sine dropping in pitch plus muffled noise
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.14);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16 * size, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(sfx);
+    o.start(t); o.stop(t + 0.2);
+    noiseBurst(t, 0.14 * size, "lowpass", 900, 0.7, 0.14);
+    // crack
+    noiseBurst(t + 0.004, 0.09 * size, "highpass", 1800, 0.7, 0.03);
+    // crackles, denser at the start
+    const n = Math.round(16 * size);
+    for (let i = 0; i < n; i++) {
+      const at = t + 0.08 + Math.pow(Math.random(), 1.6) * 0.65 * size;
+      const v = (0.015 + Math.random() * 0.035) * (1 - (at - t) / (0.9 * size));
+      if (v > 0.003) noiseBurst(at, v, "bandpass", 1800 + Math.random() * 3200, 1.4, 0.01 + Math.random() * 0.025);
+    }
+  }
+
+  // sleigh bells: a quick cluster of metallic shakes
+  function jingle(t, vol) {
+    const n = 4 + ((Math.random() * 3) | 0);
+    for (let i = 0; i < n; i++) {
+      const tt = t + i * (0.035 + Math.random() * 0.03);
+      const v = vol * (1 - i / (n + 2));
+      noiseHit(tt, v, 7000 + Math.random() * 3000, 3, 0.09);
+      bell(93 + ((Math.random() * 7) | 0), tt, v * 0.25, 0.25, sfx, [[1, 1], [2.76, 0.5], [5.4, 0.3]]);
+    }
+  }
+
+  function playEvent(e, t) {
+    if (e.kind === "box") bell(e.midi, t, e.vol, Math.max(0.9, e.len * BEAT * 3), music, BOX);
+    else if (e.kind === "bass") bell(e.midi, t, e.vol, 3 * BEAT * 1.5, music, [[1, 1], [2, 0.6], [3, 0.25], [4, 0.1]]);
+    else if (e.kind === "toll") bell(e.midi, t, e.vol, 2.6, music);
+    else noiseHit(t, e.accent ? 0.045 : 0.02, 8000, 2.5, 0.06, music); // sleigh-bell shake
+  }
+
+  function schedule() {
+    if (!ac || !musicOn || ac.state !== "running") return;
+    // after the app was in the background, pick up from here instead of catching up
+    if (loopStart + SONG.ev[evIdx].beat * BEAT < ac.currentTime - 0.1) {
+      loopStart = ac.currentTime + 0.1 - SONG.ev[evIdx].beat * BEAT;
+    }
+    const ahead = ac.currentTime + 0.35;
+    for (;;) {
+      const e = SONG.ev[evIdx];
+      const t = loopStart + e.beat * BEAT;
+      if (t > ahead) break;
+      playEvent(e, t);
+      evIdx++;
+      if (evIdx >= SONG.ev.length) {
+        evIdx = 0;
+        loopStart += (SONG.beats + SONG.gap) * BEAT;
+      }
+    }
+  }
+
+  return {
+    get on() { return on; },
+    toggle() {
+      on = !on;
+      try { localStorage.setItem("tree-sound", on ? "on" : "off"); } catch (e) {}
+      if (on) init();
+      if (ac) master.gain.setTargetAtTime(on ? 1 : 0, ac.currentTime, 0.05);
+      return on;
+    },
+    open() {
+      if (!init()) return;
+      const t = ac.currentTime + 0.02;
+      [72, 76, 79, 84].forEach((m, i) => bell(m, t + i * 0.07, 0.2, 1.6));
+      jingle(t + 0.05, 0.1);
+    },
+    grow(sec) {
+      if (!ac) return;
+      const t = ac.currentTime + 0.05;
+      // airy swell rising with the tree
+      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+      const f = ac.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(250, t);
+      f.frequency.exponentialRampToValueAtTime(5000, t + sec);
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.018, t + sec * 0.8);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + sec + 0.4);
+      s.connect(f); f.connect(g); g.connect(sfx);
+      s.start(t); s.stop(t + sec + 0.5);
+      // sparkles climbing up
+      const n = 16;
+      for (let i = 0; i < n; i++) {
+        const k = i / n;
+        bell(pentaNote(Math.round(k * 12) - 3), t + sec * Math.pow(k, 0.8), 0.02 + 0.03 * k, 0.9);
+      }
+    },
+    star() {
+      if (!ac) return;
+      const t = ac.currentTime + 0.02;
+      [84, 88, 91, 96].forEach((m, i) => bell(m, t + i * 0.045, 0.11, 2.6));
+      bell(60, t, 0.08, 3, sfx, [[1, 1], [2, 0.3], [3, 0.1]]);
+      jingle(t, 0.1);
+    },
+    // a short, high kitten "mew": soft "m" onset, quick upward flick, bright vowel
+    meow() {
+      if (!ac) return;
+      const t = ac.currentTime + 0.01;
+      const d = 0.26 + Math.random() * 0.08;
+      const f0 = 950 + Math.random() * 180;
+      const o = ac.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f0 * 0.85, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * 1.25, t + d * 0.3);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.95, t + d);
+      // "m": the mouth opens, so the tone starts muffled and brightens fast
+      const lp = ac.createBiquadFilter();
+      lp.type = "lowpass"; lp.Q.value = 0.7;
+      lp.frequency.setValueAtTime(700, t);
+      lp.frequency.exponentialRampToValueAtTime(6000, t + 0.06);
+      lp.frequency.exponentialRampToValueAtTime(2500, t + d);
+      // two vowel formants, "ee" sliding toward "ew"
+      const fa = ac.createBiquadFilter(), fb = ac.createBiquadFilter();
+      fa.type = fb.type = "bandpass";
+      fa.Q.value = 5; fb.Q.value = 6;
+      fa.frequency.setValueAtTime(1700, t); fa.frequency.exponentialRampToValueAtTime(1150, t + d);
+      fb.frequency.setValueAtTime(3300, t); fb.frequency.exponentialRampToValueAtTime(2600, t + d);
+      const ga = ac.createGain(), gb = ac.createGain(), dry = ac.createGain();
+      ga.gain.value = 1; gb.gain.value = 0.6; dry.gain.value = 0.22;
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.exponentialRampToValueAtTime(0.16, t + 0.025);
+      env.gain.exponentialRampToValueAtTime(0.11, t + d * 0.5);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(lp);
+      lp.connect(fa); fa.connect(ga); ga.connect(env);
+      lp.connect(fb); fb.connect(gb); gb.connect(env);
+      lp.connect(dry); dry.connect(env);
+      env.connect(sfx);
+      o.start(t); o.stop(t + d + 0.05);
+    },
+    tap(height01, onTree) {
+      if (!ac) return;
+      const t = ac.currentTime + 0.005;
+      firework(t, onTree ? 1.15 : 0.85);
+    },
+    wind(speed) {
+      if (!ac) return;
+      const v = Math.max(0, Math.min(1, (speed - 0.6) / 6));
+      windGain.gain.setTargetAtTime(v * 0.08, ac.currentTime, 0.12);
+      windFilter.frequency.setTargetAtTime(450 + v * 1800, ac.currentTime, 0.12);
+    },
+    startMusic() {
+      if (!ac || musicOn) return;
+      musicOn = true;
+      evIdx = 0;
+      loopStart = ac.currentTime + 0.6;
+    },
+  };
+})();
+
+// ---- pointer: drag to spin/tilt, short tap to sparkle ----
+stage.addEventListener("pointerdown", (e) => {
+  if (!started || e.target.closest("button")) return;
+  try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+  const now = performance.now();
+  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: now, t: now, moved: false, v: 0 };
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const now = performance.now();
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 7) drag.moved = true;
+  if (!drag.moved) return;
+  const k = 0.011;
+  yaw -= dx * k;
+  pitch = Math.max(-0.08, Math.min(0.6, pitch + dy * 0.004));
+  const dts = Math.max(0.008, (now - drag.t) / 1000);
+  drag.v = drag.v * 0.5 + ((-dx * k) / dts) * 0.5;
+  drag.x = e.clientX; drag.y = e.clientY; drag.t = now;
+});
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const quick = performance.now() - drag.t0 < 400;
+  if (!drag.moved && quick) tapAt(e.clientX, e.clientY);
+  else if (drag.moved) {
+    const stale = performance.now() - drag.t > 90;
+    yawVel = stale ? 0 : Math.max(-9, Math.min(9, drag.v));
+  }
+  drag = null;
+}
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", (e) => { if (drag && e.pointerId === drag.id) drag = null; });
+
+// ---- message typing ----
+function typeInto(el, text, speed, done) {
+  text = Array.from(text);
+  let i = 0;
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  el.textContent = "";
+  el.appendChild(cursor);
+  const step = () => {
+    if (i < text.length) {
+      cursor.before(text[i++]);
+      typingTimer = setTimeout(step, speed + Math.random() * 40);
+    } else {
+      cursor.remove();
+      if (done) done();
+    }
+  };
+  typingTimer = setTimeout(step, 400);
+}
+function startTyping() {
+  typeInto(line1, MESSAGE, 85, () =>
+    typeInto(line2, SUBLINE, 45, () => {
+      hint.classList.add("show");
+      replayBtn.hidden = false;
+    })
+  );
+}
+
+function begin() {
+  clearTimeout(typingTimer);
+  line1.textContent = ""; line2.textContent = "";
+  hint.classList.remove("show");
+  replayBtn.hidden = true;
+  sparks = []; rings = [];
+  kitty.on = false; kitty.bubbles = [];
+  yaw = 0.6; pitch = 0.16; wobble = 0; lightBoost = 0;
+  t0 = performance.now() / 1000;
+  if (reduce) {
+    growY = 9; phase = "live"; Sound.startMusic(); showKitty(t0); startTyping();
+  } else {
+    growY = -1; phase = "grow"; yawVel = 3;
+    Sound.grow(3);
+  }
+}
+
+const soundBtn = document.getElementById("sound");
+soundBtn.textContent = Sound.on ? "звук вкл" : "звук выкл";
+soundBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  soundBtn.textContent = Sound.toggle() ? "звук вкл" : "звук выкл";
+});
+
+document.getElementById("open").addEventListener("click", () => {
+  haptic("medium");
+  Sound.open();
+  soundBtn.hidden = false;
+  intro.classList.add("leaving");
+  setTimeout(() => (intro.hidden = true), 620);
+  started = true;
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {}); } catch (e) {}
+  begin();
+});
+replayBtn.addEventListener("click", (e) => { e.stopPropagation(); begin(); });
+
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(layout, 120);
+});
+
+// boot: draw the night scene behind the intro right away
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => {
+  layout();
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

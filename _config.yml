@@ -1,0 +1,23 @@
+# GitHub Pages settings for the ASCII Tree Mini App.
+# The site is a single hand-written index.html. It has no front matter,
+# so Jekyll copies it exactly as it is: no theme, layout or processing.
+
+title: Sashka gift
+description: Christmas tree
+lang: ru
+
+# No theme or plugins: nothing should wrap or change index.html.
+theme: null
+plugins: []
+
+# Files that stay in the repo but are NOT published on the website.
+# SETUP.md would otherwise become a public page, and the cover image is only
+# uploaded to BotFather, so the site doesn't need it.
+exclude:
+  - SETUP.md
+  - README.md
+  - cover-640x360.png
+  - "*.py"
+  - .venv/
+  - .claude/
+  - .DS_Store
