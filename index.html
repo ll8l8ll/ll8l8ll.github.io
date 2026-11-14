@@ -262,8 +262,24 @@ const replayBtn = document.getElementById("replay");
 
 // grid + camera
 let W = 0, H = 0, dpr = 1, fs = 10, cw = 6, lh = 12, cols = 0, rows = 0, ox = 0, oy = 0;
-let S = 20, ax = 2, cx = 0, baseRow = 0, midRow = 0;
+let S = 20, S0 = 20, ax = 2, cx = 0, baseRow = 0, midRow = 0; // S = S0 * zoom
 const CAM_D = 3.2; // camera distance (in tree heights) for perspective
+// zoom: pinch / mouse wheel. The tree is re-sampled when zoom moves far from the
+// density it was built for, so zooming in never shows gaps between characters.
+const ZOOM_MIN = 0.55, ZOOM_MAX = 2.6, ZOOM_DENS = 1.7;
+let zoom = 1, zoomBuilt = 1, rebuildTimer = 0;
+const wrapAngle = (a) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+// small seeded random, so ornaments land in the same spots after a rebuild
+function seeded(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// stable hash noise for things that must not move between rebuilds (snow on branches)
+const hash3 = (a, b, c) => { const x = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return x - Math.floor(x); };
 let ch = [], colr = new Uint8Array(0), zb = new Float32Array(0), kindBuf = new Uint8Array(0);
 const groups = PAL.map(() => []);
 
@@ -273,7 +289,7 @@ let P = new Float32Array(0), nPts = 0;
 let flakes = [], sky = [], sparks = [], rings = [], lit = [];
 
 // state
-let yaw = 0.6, pitch = 0.16, yawVel = 0.3, autoVel = reduce ? 0 : 0.3;
+let yaw = 0.6, pitch = 0.16, yawVel = 0.3, pitchVel = 0, autoVel = reduce ? 0 : 0.3;
 let wobble = 0, lightBoost = 0, growY = -1, phase = "idle", t0 = 0, last = 0;
 let typingTimer = null, raf = 0, started = false, drag = null;
 
@@ -314,25 +330,40 @@ function layout() {
   cols = Math.floor(W / cw); rows = Math.floor(H / lh);
   ox = (W - cols * cw) / 2; oy = (H - rows * lh) / 2;
   ax = lh / cw;
-  S = Math.min(rows * 0.56, (cols * 0.86) / (1.0 * ax));
+  S0 = Math.min(rows * 0.56, (cols * 0.86) / (1.0 * ax));
+  S = S0 * zoom;
   cx = (cols - 1) / 2;
   baseRow = Math.round(rows * 0.68);
-  midRow = baseRow - 0.5 * S;
+  midRow = baseRow - 0.5 * S0; // the tree's middle stays put while zooming
   const n = cols * rows;
   ch = new Array(n).fill("");
   colr = new Uint8Array(n); zb = new Float32Array(n); kindBuf = new Uint8Array(n);
-  msgBox.style.top = Math.round(oy + (baseRow + 0.12 * S + 2) * lh) + "px";
+  msgBox.style.top = Math.round(oy + (baseRow + 0.12 * S0 + 2) * lh) + "px";
   buildScene();
   buildSnow();
 }
 
+function setZoom(z) {
+  zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  S = S0 * zoom;
+  const need = Math.min(zoom, ZOOM_DENS) / Math.min(zoomBuilt, ZOOM_DENS);
+  if (need > 1.15 || need < 0.6) {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => { buildScene(); buildSnow(); }, 90);
+  }
+}
+
 function buildScene() {
+  // sample density follows the zoom (capped, to keep phones fast)
+  const S = S0 * Math.min(zoom, ZOOM_DENS);
+  zoomBuilt = zoom;
+  const orng = seeded(20261224);
   const pts = [];
   const push = (x, y, z, nx, ny, nz, kind, color, a, noise, g) => pts.push(x, y, z, nx, ny, nz, kind, color, a, noise, g);
   const KS = 1.8; // samples per cell
 
   // branches
-  TIERS.forEach((tier) => {
+  TIERS.forEach((tier, ti) => {
     const nY = Math.ceil((tier.y1 - tier.y0) * S * 2.4);
     for (let j = 0; j <= nY; j++) {
       const t = Math.min(0.995, j / nY);
@@ -355,7 +386,11 @@ function buildScene() {
           if (up !== tier && gap > 0 && gap < 0.06) ao *= 0.45 + 0.55 * (gap / 0.06);
         }
         const noise = Math.random();
-        const snowy = (t < 0.06 && p[3] > 0.6 && noise > 0.4) || (p[3] > 0.85 && noise > 0.985 && t < 0.5);
+        // snow patches come from a fixed hash of the spot, so they stay put after a zoom rebuild
+        const thN = ((th % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        const sn = hash3(ti, Math.floor(thN * 40), Math.floor(t * 60));
+        const speck = hash3(ti + 9, Math.floor(thN * 160), Math.floor(t * 90));
+        const snowy = (t < 0.06 && p[3] > 0.6 && sn > 0.4) || (p[3] > 0.85 && speck > 0.985 && t < 0.5);
         push(p[0], p[1], p[2], nx / nl, ny / nl, nz / nl, snowy ? K_SNOWCAP : K_NEEDLE, 0, ao, noise, 0);
       }
     }
@@ -373,7 +408,7 @@ function buildScene() {
   }
 
   // string of lights spiralling up
-  const turns = 3.3, NB = Math.round(30 + S * 1.4);
+  const turns = 3.3, NB = Math.round(30 + S0 * 1.4);
   const spiral = [];
   let total = 0, prev = null;
   for (let k = 0; k <= 2000; k++) {
@@ -413,11 +448,11 @@ function buildScene() {
   const NO = 42;
   for (let o = 0; o < NO; o++) {
     const tier = TIERS[o % 5];
-    const t = 0.12 + Math.random() * 0.6;
-    const k = Math.floor(Math.random() * tier.nb);
-    const th = (2 * Math.PI * k) / tier.nb - tier.off + (Math.random() - 0.5) * 0.15;
+    const t = 0.12 + orng() * 0.6;
+    const k = Math.floor(orng() * tier.nb);
+    const th = (2 * Math.PI * k) / tier.nb - tier.off + (orng() - 0.5) * 0.15;
     const p = surf(tier, t, th);
-    const rad = 0.011 + Math.random() * 0.008 + (o % 6 === 0 ? 0.006 : 0);
+    const rad = 0.011 + orng() * 0.008 + (o % 6 === 0 ? 0.006 : 0);
     const rr = Math.hypot(p[0], p[2]) + rad * 0.6;
     const ocx = rr * Math.cos(th), ocy = p[1] - rad * 0.8, ocz = rr * Math.sin(th);
     const [bright, dark] = ORN[o % ORN.length];
@@ -498,7 +533,7 @@ function buildScene() {
   }
 
   // snowy ground disc, with the tree's shadow on it
-  const gR = Math.min(0.6, (cols * 0.47) / (S * ax)), sx = 1 / (S * ax * 1.1), sz = 1 / (S * 1.0);
+  const gR = Math.min(0.6, (cols * 0.47) / (S0 * ax)), sx = 1 / (S * ax * 1.1), sz = 1 / (S * 1.0);
   for (let x = -gR; x <= gR; x += sx) {
     for (let z = -gR; z <= gR; z += sz) {
       const r = Math.hypot(x, z);
@@ -573,11 +608,14 @@ function frame(nowMs) {
     }
   }
 
-  if (!drag) {
+  if (!drag && !pinch) {
     yawVel += (autoVel - yawVel) * Math.min(1, dt * 0.9);
     yaw += yawVel * dt;
-    pitch += (0.16 - pitch) * Math.min(1, dt * 1.2);
+    // tilt keeps any angle you leave it at (full 360°), just coasting to a stop
+    pitch = wrapAngle(pitch + pitchVel * dt);
+    pitchVel *= Math.exp(-dt * 2.4);
   }
+  yaw = wrapAngle(yaw);
   Sound.wind(drag ? (nowMs - drag.t < 120 ? Math.abs(drag.v) : 0) : Math.abs(yawVel));
   wobble *= Math.exp(-dt * 2.6);
   lightBoost *= Math.exp(-dt * 2.2);
@@ -593,6 +631,8 @@ function frame(nowMs) {
 
   const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
   const sway = wobble * Math.sin(now * 30) * 2.2;
+  // looking up from below: branch undersides face away from us, so draw them two-sided (darker)
+  const below = sP < -0.12;
 
   for (let i = 0; i < nPts; i++) {
     const o = i * STRIDE;
@@ -603,7 +643,8 @@ function frame(nowMs) {
     const nx = P[o + 3], ny = P[o + 4], nz = P[o + 5];
     const nx1 = nx * cY - nz * sY, nz1 = nx * sY + nz * cY;
     const ny2 = ny * cP - nz1 * sP, nz2 = ny * sP + nz1 * cP;
-    if ((kind === K_NEEDLE || kind === K_SNOWCAP || kind === K_TRUNK || kind === K_ORN || kind === K_GIFT || kind === K_RIBBON) && nz2 < -0.25) continue;
+    const under = below && nz2 < -0.25 && (kind === K_NEEDLE || kind === K_SNOWCAP);
+    if (!under && (kind === K_NEEDLE || kind === K_SNOWCAP || kind === K_TRUNK || kind === K_ORN || kind === K_GIFT || kind === K_RIBBON) && nz2 < -0.25) continue;
     const x = P[o], z = P[o + 2];
     const x1 = x * cY - z * sY, z1 = x * sY + z * cY, y1 = y - 0.5;
     const y2 = y1 * cP - z1 * sP, z2 = y1 * sP + z1 * cP;
@@ -611,7 +652,8 @@ function frame(nowMs) {
     const col = cx + x1 * f * S * ax + sway * Math.max(0, y) * Math.max(0, y);
     const row = midRow - y2 * f * S;
     const fog = 0.6 + 0.4 * Math.min(1, Math.max(0, (z2 + 0.55) / 1.1));
-    const lam = Math.max(0, nx1 * Lx + ny2 * Ly + nz2 * Lz);
+    const dotL = nx1 * Lx + ny2 * Ly + nz2 * Lz;
+    const lam = under ? Math.max(0, -dotL) * 0.5 : Math.max(0, dotL);
     const noise = P[o + 9];
 
     switch (kind) {
@@ -838,6 +880,9 @@ function petKitty() {
   haptic("light");
 }
 
+// characters mirrored top-to-bottom, for drawing the kitten upside down
+const FLIP_CH = { "/": "\\", "\\": "/", "_": "\u203e", "`": ",", "'": ",", ",": "'", ".": "'", "^": "v", "v": "^" };
+
 function drawKitty(now, dt) {
   if (!kitty.on) return;
   kitty.happy = Math.max(0, kitty.happy - dt);
@@ -875,10 +920,15 @@ function drawKitty(now, dt) {
   ];
   const CK = { g: KIT, d: KIT_D, w: KIT_W, y: KIT_EYE, n: KIT_NOSE, p: KIT_EAR, b: KIT };
   const c0 = Math.round(p[0]) - 7;
-  const r0 = Math.round(p[1]) - 7 - (kitty.hop > 0 ? 1 : 0);
+  // with the tree turned upside down the kitten hangs from the ground, head down
+  const flip = Math.cos(pitch) < 0;
+  const hopR = kitty.hop > 0 ? 1 : 0, base = Math.round(p[1]);
+  const rowOf = (j) => (flip ? base + (7 - j) + hopR : base - 7 + j - hopR);
+  const r0 = rowOf(0); // the row with the ears
   // a flat sprite: nudge it forward so the lowest branches don't cut it up.
   // Facing us it sits fully in front; turned to the side/back the tree covers it as usual.
-  const front = (kitty.x * Math.sin(yaw) + kitty.z * Math.cos(yaw)) / KITTY_R; // -1 back .. 1 front
+  const z1 = kitty.x * Math.sin(yaw) + kitty.z * Math.cos(yaw);
+  const front = (z1 * Math.cos(pitch)) / KITTY_R; // -1 back .. 1 front
   const k = Math.max(0, Math.min(1, (front + 0.1) / 0.6));
   const z = p[2] + 0.22 + 0.6 * k * k * (3 - 2 * k);
   for (let j = 0; j < sprite.length; j++) {
@@ -887,7 +937,9 @@ function drawKitty(now, dt) {
       if (!m || m === " ") continue;
       let color = CK[m];
       if (m === "y" && eye !== "o") color = KIT_D; // closed eyes are dark lines
-      put(c0 + i, r0 + j, m === "b" ? " " : sprite[j][i], color, z, K_KITTY);
+      let g = m === "b" ? " " : sprite[j][i];
+      if (flip) g = FLIP_CH[g] || g;
+      put(c0 + i, rowOf(j), g, color, z, K_KITTY);
     }
   }
 
@@ -899,7 +951,7 @@ function drawKitty(now, dt) {
   kitty.bubbles = kitty.bubbles.filter((b) => (b.age += dt) < b.life);
   for (const b of kitty.bubbles) {
     const k = b.age / b.life;
-    const rr = r0 + b.dy - k * 4;
+    const rr = flip ? r0 + 1 + k * 4 : r0 + b.dy - k * 4;
     const cc = c0 + 7 + b.dx + Math.sin(b.age * 4) * 0.6;
     const color = k > 0.7 ? SNOW_D : b.color;
     for (let i = 0; i < b.text.length; i++) put(cc + i, rr, b.text[i], color, 450, 3);
@@ -1231,37 +1283,78 @@ const Sound = (() => {
 })();
 
 // ---- pointer: drag to spin/tilt, short tap to sparkle ----
+const pointers = new Map();
+let pinch = null;
+function pinchDist() {
+  const [a, b] = [...pointers.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y) || 1;
+}
 stage.addEventListener("pointerdown", (e) => {
   if (!started || e.target.closest("button")) return;
   try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const now = performance.now();
-  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: now, t: now, moved: false, v: 0 };
+  if (pointers.size === 2) {
+    // a second finger switches from turning to zooming
+    drag = null;
+    pinch = { d0: pinchDist(), z0: zoom };
+  } else if (pointers.size === 1 && !pinch) {
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: now, t: now, moved: false, v: 0, vp: 0 };
+  }
 });
 stage.addEventListener("pointermove", (e) => {
+  const pt = pointers.get(e.pointerId);
+  if (!pt) return;
+  pt.x = e.clientX; pt.y = e.clientY;
+  if (pinch) {
+    if (pointers.size >= 2) setZoom((pinch.z0 * pinchDist()) / pinch.d0);
+    return;
+  }
   if (!drag || e.pointerId !== drag.id) return;
   const now = performance.now();
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 7) drag.moved = true;
   if (!drag.moved) return;
-  const k = 0.011;
-  yaw -= dx * k;
-  pitch = Math.max(-0.08, Math.min(0.6, pitch + dy * 0.004));
+  const k = 0.011, kp = 0.009;
+  // upside down, left/right would feel reversed, so flip it
+  const sign = Math.cos(pitch) < 0 ? -1 : 1;
+  yaw -= dx * k * sign;
+  pitch = wrapAngle(pitch + dy * kp); // no limit: all the way over the top and under
   const dts = Math.max(0.008, (now - drag.t) / 1000);
-  drag.v = drag.v * 0.5 + ((-dx * k) / dts) * 0.5;
+  drag.v = drag.v * 0.5 + ((-dx * k * sign) / dts) * 0.5;
+  drag.vp = drag.vp * 0.5 + ((dy * kp) / dts) * 0.5;
   drag.x = e.clientX; drag.y = e.clientY; drag.t = now;
 });
 function endDrag(e) {
+  pointers.delete(e.pointerId);
+  if (pinch) {
+    if (pointers.size === 0) pinch = null; // stay in zoom mode until every finger is up
+    return;
+  }
   if (!drag || e.pointerId !== drag.id) return;
   const quick = performance.now() - drag.t0 < 400;
   if (!drag.moved && quick) tapAt(e.clientX, e.clientY);
   else if (drag.moved) {
     const stale = performance.now() - drag.t > 90;
     yawVel = stale ? 0 : Math.max(-9, Math.min(9, drag.v));
+    pitchVel = stale ? 0 : Math.max(-6, Math.min(6, drag.vp));
   }
   drag = null;
 }
 stage.addEventListener("pointerup", endDrag);
-stage.addEventListener("pointercancel", (e) => { if (drag && e.pointerId === drag.id) drag = null; });
+stage.addEventListener("pointercancel", (e) => {
+  pointers.delete(e.pointerId);
+  if (pinch && pointers.size === 0) pinch = null;
+  if (drag && e.pointerId === drag.id) drag = null;
+});
+// mouse wheel / trackpad pinch (the trackpad sends ctrl+wheel)
+stage.addEventListener("wheel", (e) => {
+  if (!started) return;
+  e.preventDefault();
+  setZoom(zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
+}, { passive: false });
+// keep iOS from zooming the whole page instead
+document.addEventListener("gesturestart", (e) => e.preventDefault());
 
 // ---- message typing ----
 function typeInto(el, text, speed, done) {
@@ -1298,7 +1391,8 @@ function begin() {
   replayBtn.hidden = true;
   sparks = []; rings = [];
   kitty.on = false; kitty.bubbles = [];
-  yaw = 0.6; pitch = 0.16; wobble = 0; lightBoost = 0;
+  yaw = 0.6; pitch = 0.16; pitchVel = 0; wobble = 0; lightBoost = 0;
+  if (zoom !== 1) setZoom(1);
   t0 = performance.now() / 1000;
   if (reduce) {
     growY = 9; phase = "live"; Sound.startMusic(); showKitty(t0); startTyping();
